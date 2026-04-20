@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESP32 Smart Home Dashboard</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07111f;
+      --bg-soft: rgba(15, 23, 42, 0.72);
+      --panel: rgba(15, 23, 42, 0.82);
+      --panel-2: rgba(17, 24, 39, 0.88);
+      --line: rgba(148, 163, 184, 0.14);
+      --text: #e5eefc;
+      --muted: #8fa3bf;
+      --cyan: #22d3ee;
+      --blue: #3b82f6;
+      --violet: #8b5cf6;
+      --green: #22c55e;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --orange: #f97316;
+      --shadow: 0 18px 60px rgba(2, 8, 23, 0.45);
+      --radius: 24px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: 'Inter', Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(34, 211, 238, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(139, 92, 246, 0.15), transparent 25%),
+        linear-gradient(135deg, #020617 0%, #07111f 45%, #0b1220 100%);
+      color: var(--text);
+      min-height: 100%;
+    }
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0.12));
+      pointer-events: none;
+    }
+    .container { position: relative; z-index: 1; max-width: 1380px; margin: 0 auto; padding: 34px 22px 42px; }
+
+    /* GAS ALERT BANNER */
+    .gas-alert-banner {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+      background: linear-gradient(90deg, #7f1d1d, #991b1b, #7f1d1d);
+      border-bottom: 2px solid #ef4444;
+      padding: 14px 24px;
+      text-align: center;
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: 0.05em;
+      color: #fecaca;
+      animation: alertFlash 0.6s infinite alternate;
+    }
+    @keyframes alertFlash { from { opacity: 1; } to { opacity: 0.7; } }
+    .gas-alert-banner.active { display: block; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.6fr 0.9fr;
+      gap: 22px; margin-bottom: 24px;
+    }
+    .hero-main, .hero-side, .card, .chart-card, .table-card {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .hero-main { padding: 30px; position: relative; overflow: hidden; }
+    .hero-main::after {
+      content: ""; position: absolute;
+      width: 280px; height: 280px; right: -80px; top: -80px;
+      background: radial-gradient(circle, rgba(34,211,238,0.20), transparent 65%);
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border: 1px solid rgba(34, 211, 238, 0.2);
+      border-radius: 999px; background: rgba(15, 23, 42, 0.65);
+      color: #b9f6ff; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .hero-main h1 { margin: 18px 0 10px; font-size: clamp(28px, 4vw, 40px); line-height: 1.05; letter-spacing: -0.04em; }
+    .hero-main p { max-width: 740px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+    .hero-stats { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+    .mini-pill {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(255,255,255,0.03); color: var(--text);
+      font-size: 13px; font-weight: 600;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 16px rgba(34, 211, 238, 0.75); }
+    .hero-side { padding: 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; }
+    .status-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .status-label { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 999px; font-weight: 700; font-size: 13px;
+      border: 1px solid rgba(148,163,184,0.12); background: rgba(30, 41, 59, 0.9); color: var(--text);
+    }
+    .status-badge.good { color: #bbf7d0; border-color: rgba(34, 197, 94, 0.25); }
+    .status-badge.warn { color: #fde68a; border-color: rgba(245, 158, 11, 0.22); }
+    .status-badge.bad { color: #fecaca; border-color: rgba(239, 68, 68, 0.22); }
+    .side-value { font-size: 42px; font-weight: 800; letter-spacing: -0.04em; margin: 0; }
+    .side-sub { color: var(--muted); font-size: 14px; line-height: 1.6; margin-top: 8px; }
+    .action-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      border: 1px solid rgba(148, 163, 184, 0.15); border-radius: 16px;
+      padding: 12px 16px; font-weight: 700; cursor: pointer;
+      transition: 0.2s ease; font-size: 14px;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--blue), var(--violet)); color: white; box-shadow: 0 12px 30px rgba(59, 130, 246, 0.28); }
+    .btn-secondary { background: rgba(255,255,255,0.04); color: var(--text); }
+    .btn-danger { background: linear-gradient(135deg, #ef4444, #991b1b); color: white; box-shadow: 0 8px 20px rgba(239,68,68,0.3); }
+    .btn-success { background: linear-gradient(135deg, #22c55e, #15803d); color: white; box-shadow: 0 8px 20px rgba(34,197,94,0.3); }
+    .btn-unlock { background: linear-gradient(135deg, #f97316, #c2410c); color: white; box-shadow: 0 8px 20px rgba(249,115,22,0.3); }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    .section-divider {
+      display: flex; align-items: center; gap: 14px;
+      margin: 32px 0 18px;
+    }
+    .section-divider h2 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+    .section-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 24px; }
+    .card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+    }
+    .card::before {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.06), transparent 45%);
+      pointer-events: none;
+    }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+    .card-title { font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+    .icon-wrap {
+      width: 44px; height: 44px; border-radius: 14px;
+      display: grid; place-items: center;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(148, 163, 184, 0.12); font-size: 20px;
+    }
+    .value { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -0.04em; margin: 0 0 8px; }
+    .sub { color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .good { color: var(--green); }
+    .warn { color: var(--yellow); }
+    .bad { color: var(--red); }
+    .accent-cyan { color: var(--cyan); }
+    .accent-violet { color: #c4b5fd; }
+    .accent-orange { color: var(--orange); }
+
+    .home-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-bottom: 24px; }
+
+    .door-card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+      grid-column: span 1;
+    }
+    .door-visual {
+      display: flex; align-items: center; justify-content: center;
+      margin: 14px 0; font-size: 64px; position: relative;
+      transition: transform 0.5s ease;
+    }
+    .door-visual.unlocked { transform: perspective(200px) rotateY(-35deg); filter: drop-shadow(0 0 18px rgba(34,197,94,0.5)); }
+    .door-status-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+    .light-card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+    }
+    .light-bulb-wrap {
+      display: flex; align-items: center; justify-content: center;
+      margin: 14px 0; font-size: 64px; transition: all 0.4s ease;
+    }
+    .light-bulb-wrap.on { filter: drop-shadow(0 0 24px rgba(251,191,36,0.85)); }
+    .light-bulb-wrap.off { filter: grayscale(1) brightness(0.4); }
+
+    .fan-card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+    }
+    .fan-gif-wrap {
+      display: flex; align-items: center; justify-content: center;
+      margin: 10px 0; height: 80px;
+    }
+    .fan-svg { width: 72px; height: 72px; }
+    .fan-svg .blade { transform-origin: 36px 36px; }
+    .fan-svg.spinning .blade { animation: fanSpin 0.5s linear infinite; }
+    @keyframes fanSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .fan-svg.slow .blade { animation: fanSpin 1.4s linear infinite; }
+    .fan-svg.off-state .blade { animation: none; }
+
+    .gas-card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+    }
+    .gas-bar-wrap { margin: 12px 0; }
+    .gas-bar-bg { height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+    .gas-bar-fill { height: 100%; border-radius: 999px; width: 0%; transition: width 0.6s ease, background 0.4s; background: var(--green); }
+
+    .ir-card {
+      padding: 22px; position: relative; overflow: hidden;
+      background: linear-gradient(180deg, rgba(17,24,39,0.88), rgba(15,23,42,0.78));
+    }
+    .person-visual {
+      display: flex; align-items: center; justify-content: center;
+      margin: 10px 0; font-size: 56px;
+      transition: all 0.4s;
+    }
+    .person-visual.detected { filter: drop-shadow(0 0 18px rgba(34,211,238,0.8)); animation: personPulse 1s ease-in-out infinite alternate; }
+    @keyframes personPulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+
+    .content-grid { display: grid; grid-template-columns: 1.5fr 0.95fr; gap: 22px; margin-bottom: 22px; }
+    .chart-card, .table-card { padding: 22px; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+    .section-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.03em; }
+    .section-head p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .legend-inline { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; font-weight: 600; }
+    .legend-item { display: inline-flex; align-items: center; gap: 8px; }
+    .legend-swatch { width: 10px; height: 10px; border-radius: 50%; }
+    .info-list { display: grid; gap: 12px; margin-top: 10px; }
+    .info-row { display: flex; justify-content: space-between; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.10); font-size: 14px; }
+    .label { color: var(--muted); }
+    .footer-note { margin-top: 16px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+    .table-card table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table-card th, .table-card td { text-align: left; padding: 14px 10px; border-bottom: 1px solid rgba(148, 163, 184, 0.10); }
+    .table-card th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+    .chip { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid rgba(148,163,184,0.14); background: rgba(255,255,255,0.04); }
+
+    .unlock-timer { font-size: 12px; color: var(--orange); font-weight: 700; margin-top: 6px; display: none; }
+    .unlock-timer.active { display: block; }
+
+    @keyframes buzzerPulse {
+      0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.7); }
+      70% { box-shadow: 0 0 0 18px rgba(239,68,68,0); }
+      100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+    }
+    .buzzer-active { animation: buzzerPulse 0.8s infinite; }
+
+    .pulse { animation: dotPulse 2s infinite; }
+    @keyframes dotPulse {
+      0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.5); }
+      70% { box-shadow: 0 0 0 12px rgba(34, 211, 238, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+    }
+
+    @media (max-width: 1180px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .home-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hero, .content-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 700px) {
+      .container { padding: 18px 14px 28px; }
+      .hero-main, .hero-side, .card, .chart-card, .table-card, .door-card, .light-card, .fan-card, .gas-card, .ir-card { border-radius: 20px; }
+      .grid, .home-grid { grid-template-columns: 1fr; }
+      .side-value { font-size: 34px; }
+      .table-card { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="gas-alert-banner" id="gasAlertBanner">
+  ⚠️ DANGER: LPG GAS LEAK DETECTED! LEVEL EXCEEDS SAFE LIMIT — EVACUATE & VENTILATE IMMEDIATELY ⚠️
+</div>
+
+<div class="container" style="margin-top: 0;" id="mainContainer">
+
+  <section class="hero">
+    <div class="hero-main">
+      <div class="eyebrow"><span class="dot pulse"></span> Live Firebase Monitoring</div>
+      <h1>ESP32 Smart Home Dashboard</h1>
+      <p>
+        Full home automation & safety system — DHT22 sensor, door IR detection, servo lock, fan & light control,
+        and LPG gas safety monitoring. All live from Firebase Realtime Database.
+      </p>
+      <div class="hero-stats">
+        <div class="mini-pill">Realtime sync enabled</div>
+        <div class="mini-pill">Home automation</div>
+        <div class="mini-pill">Safety monitoring</div>
+      </div>
+    </div>
+
+    <div class="hero-side">
+      <div>
+        <div class="status-top">
+          <div>
+            <div class="status-label">Connection</div>
+            <h3 class="side-value" id="overallState">--</h3>
+          </div>
+          <div id="connectionBadge" class="status-badge">Connecting...</div>
+        </div>
+        <div class="side-sub" id="lastUpdated">Waiting for the first reading...</div>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-primary" id="refreshBtn">Refresh Now</button>
+        <button class="btn btn-secondary" id="downloadBtn">Export Snapshot</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SENSOR CARDS -->
+  <section class="grid">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Temperature</div>
+        <div class="icon-wrap">🌡️</div>
+      </div>
+      <div class="value accent-cyan" id="tempValue">-- °C</div>
+      <div class="sub" id="tempSub">Threshold: 27.0 °C</div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Humidity</div>
+        <div class="icon-wrap">💧</div>
+      </div>
+      <div class="value accent-violet" id="humValue">-- %</div>
+      <div class="sub">Live DHT22 sensor reading</div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Fan Speed</div>
+        <div class="icon-wrap">🌀</div>
+      </div>
+      <div class="value" id="speedValue">--</div>
+      <div class="sub" id="fanSub">Based on Firebase /home/fan</div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">System Status</div>
+        <div class="icon-wrap">📡</div>
+      </div>
+      <div class="value" id="statusValue">--</div>
+      <div class="sub" id="statusSub">Waiting for sensor feed</div>
+    </div>
+  </section>
+
+  <div class="section-divider">
+    <h2>🏠 Home Automation & Safety</h2>
+  </div>
+
+  <section class="home-grid">
+
+    <!-- DOOR CARD -->
+    <div class="card door-card" id="doorCard">
+      <div class="card-head">
+        <div class="card-title">Door System</div>
+        <div class="icon-wrap" id="doorIconWrap" style="font-size:16px;">🚪</div>
+      </div>
+      <div class="door-visual" id="doorVisual">🚪</div>
+      <div class="sub" id="doorStatusText" style="text-align:center; margin-bottom:10px;">Servo: 0° (Locked)</div>
+      <div class="unlock-timer" id="unlockTimer">Auto-locking in <span id="unlockCountdown">5</span>s...</div>
+      <div class="door-status-row">
+        <button class="btn btn-unlock" id="unlockBtn" style="flex:1;">🔓 Unlock Door</button>
+      </div>
+      <div style="margin-top:8px; font-size:12px; color:var(--muted);">Writes 1 to /home/door → ESP32 opens servo 120° for 5s</div>
+    </div>
+
+    <!-- IR SENSOR CARD -->
+    <div class="card ir-card" id="irCard">
+      <div class="card-head">
+        <div class="card-title">IR Person Sensor</div>
+        <div class="icon-wrap" id="irIconWrap">👁️</div>
+      </div>
+      <div class="person-visual" id="personVisual">🧍</div>
+      <div class="value" id="irValue" style="text-align:center; font-size:22px;">--</div>
+      <div class="sub" id="irSub" style="text-align:center;">Waiting for IR data...</div>
+      <div style="margin-top:14px; padding: 10px 14px; border-radius:14px; border:1px solid rgba(148,163,184,0.1); background:rgba(255,255,255,0.03);">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em;">Buzzer (IR LOW → Titanic melody)</div>
+        <div class="value" id="buzzerValue" style="font-size:20px; text-align:center;">--</div>
+      </div>
+    </div>
+
+    <!-- GAS CARD -->
+    <div class="card gas-card" id="gasCard">
+      <div class="card-head">
+        <div class="card-title">LPG Gas Sensor (MQ5)</div>
+        <div class="icon-wrap" id="gasIconWrap">🔥</div>
+      </div>
+      <div class="value" id="gasValue" style="text-align:center;">-- <span style="font-size:16px; font-weight:500;">raw</span></div>
+      <div class="sub" id="gasSub" style="text-align:center; margin-bottom:10px;">Threshold: 800 (analog raw)</div>
+      <div class="gas-bar-wrap">
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:4px;">
+          <span>0</span><span>400</span><span>800+</span>
+        </div>
+        <div class="gas-bar-bg"><div class="gas-bar-fill" id="gasBarFill"></div></div>
+      </div>
+      <div id="gasAlertLocal" style="display:none; margin-top:12px; padding:10px 12px; border-radius:14px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); text-align:center; font-size:13px; font-weight:700; color:#fecaca;">
+        ⚠️ GAS ALERT! Evacuate immediately!
+      </div>
+    </div>
+
+    <!-- LIGHT CONTROL CARD -->
+    <div class="card light-card" id="lightCard">
+      <div class="card-head">
+        <div class="card-title">Light Control</div>
+        <div class="icon-wrap" id="lightIconWrap">💡</div>
+      </div>
+      <div class="light-bulb-wrap off" id="lightBulbWrap">💡</div>
+      <div class="value" id="lightValue" style="text-align:center; font-size:22px;">--</div>
+      <div class="sub" id="lightSub" style="text-align:center; margin-bottom:14px;">Writes to /home/led</div>
+      <div class="action-row" style="justify-content:center;">
+        <button class="btn btn-success" id="lightOnBtn">Turn ON</button>
+        <button class="btn btn-secondary" id="lightOffBtn">Turn OFF</button>
+      </div>
+    </div>
+
+    <!-- FAN CONTROL CARD -->
+    <div class="card fan-card" id="fanControlCard">
+      <div class="card-head">
+        <div class="card-title">Fan Control (0–100%)</div>
+        <div class="icon-wrap">🌀</div>
+      </div>
+      <div class="fan-gif-wrap">
+        <svg class="fan-svg off-state" id="fanSvg" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="36" cy="36" r="34" stroke="rgba(148,163,184,0.2)" stroke-width="1.5"/>
+          <g class="blade">
+            <ellipse cx="36" cy="18" rx="7" ry="18" fill="rgba(34,211,238,0.6)" transform="rotate(0 36 36)"/>
+            <ellipse cx="36" cy="18" rx="7" ry="18" fill="rgba(59,130,246,0.6)" transform="rotate(120 36 36)"/>
+            <ellipse cx="36" cy="18" rx="7" ry="18" fill="rgba(139,92,246,0.6)" transform="rotate(240 36 36)"/>
+            <circle cx="36" cy="36" r="6" fill="rgba(148,163,184,0.5)"/>
+          </g>
+        </svg>
+      </div>
+      <div class="value" id="fanControlValue" style="text-align:center; font-size:22px;">--</div>
+      <div class="sub" id="fanControlSub" style="text-align:center; margin-bottom:10px;">Writes 0–100 to /home/fan</div>
+      <!-- Fan slider -->
+      <div style="margin-bottom:12px;">
+        <input type="range" id="fanSlider" min="0" max="100" value="0"
+          style="width:100%; accent-color:var(--cyan);"
+          oninput="onFanSlider(this.value)">
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px;">
+          <span>0%</span><span id="fanSliderLabel">0%</span><span>100%</span>
+        </div>
+      </div>
+      <div class="action-row" style="justify-content:center;">
+        <button class="btn btn-success" id="fanOnBtn">Fan HIGH (100)</button>
+        <button class="btn btn-secondary" id="fanOffBtn">Fan OFF (0)</button>
+      </div>
+    </div>
+
+    <!-- SYSTEM INFO CARD -->
+    <div class="card" id="physBtnCard">
+      <div class="card-head">
+        <div class="card-title">Firebase DB Paths</div>
+        <div class="icon-wrap">🗂️</div>
+      </div>
+      <div style="font-size:13px; color:var(--muted); line-height:2;">
+        <div><span style="color:var(--cyan);">/sensor/temp</span> → Temperature (°C)</div>
+        <div><span style="color:var(--cyan);">/sensor/hum</span> → Humidity (%)</div>
+        <div><span style="color:var(--cyan);">/sensor/ir</span> → IR sensor (0/1)</div>
+        <div><span style="color:var(--cyan);">/sensor/gas</span> → Gas raw value</div>
+        <div><span style="color:var(--violet);">/home/led</span> → Light (0/1)</div>
+        <div><span style="color:var(--violet);">/home/fan</span> → Fan speed (0–100)</div>
+        <div><span style="color:var(--violet);">/home/door</span> → Door trigger (0/1)</div>
+      </div>
+      <div style="margin-top:10px; font-size:11px; color:var(--muted);">Project: dht22iot-5b3fd</div>
+    </div>
+
+  </section>
+
+  <!-- CHART + DETAILS -->
+  <section class="content-grid">
+    <div class="chart-card">
+      <div class="section-head">
+        <div>
+          <h2>Live Sensor Trend</h2>
+          <p>Recent temperature and humidity values from /sensor/temp & /sensor/hum.</p>
+        </div>
+        <div class="legend-inline">
+          <span class="legend-item"><span class="legend-swatch" style="background:#22d3ee"></span>Temperature</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:#8b5cf6"></span>Humidity</span>
+        </div>
+      </div>
+      <canvas id="sensorChart" height="120"></canvas>
+      <div class="footer-note">
+        Stores the last 20 readings in browser memory. Data source: Firebase /sensor node.
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="section-head">
+        <div>
+          <h2>System Details</h2>
+          <p>Quick summary of device logic and live states.</p>
+        </div>
+      </div>
+      <div class="info-list">
+        <div class="info-row"><span class="label">Sensor Path</span><strong>/sensor</strong></div>
+        <div class="info-row"><span class="label">Control Path</span><strong>/home</strong></div>
+        <div class="info-row"><span class="label">Fan Speed</span><strong id="fanMode">--</strong></div>
+        <div class="info-row"><span class="label">Temp Rule</span><strong>Gas &gt; 800 → Buzzer alert</strong></div>
+        <div class="info-row"><span class="label">Humidity State</span><strong id="humidityState">--</strong></div>
+        <div class="info-row"><span class="label">Temperature State</span><strong id="temperatureState">--</strong></div>
+        <div class="info-row"><span class="label">Door State</span><strong id="doorStateInfo">--</strong></div>
+        <div class="info-row"><span class="label">Gas Level</span><strong id="gasStateInfo">--</strong></div>
+        <div class="info-row"><span class="label">Auth User</span><strong id="authUser">Not signed in</strong></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TABLE -->
+  <section class="table-card">
+    <div class="section-head">
+      <div>
+        <h2>Latest Reading Snapshot</h2>
+        <p>Most recent sensor values and operating state.</p>
+      </div>
+      <span class="chip" id="stateChip">Awaiting data</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th><th>Value</th><th>State</th><th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Temperature</td><td id="tableTemp">--</td><td id="tableTempState">--</td><td>/sensor/temp — DHT22</td></tr>
+        <tr><td>Humidity</td><td id="tableHum">--</td><td id="tableHumState">--</td><td>/sensor/hum — DHT22</td></tr>
+        <tr><td>Fan Speed</td><td id="tableSpeed">--</td><td id="tableSpeedState">--</td><td>/home/fan — 0 to 100</td></tr>
+        <tr><td>System Status</td><td id="tableStatus">--</td><td id="tableStatusState">--</td><td>Overall ESP32 state</td></tr>
+        <tr><td>Door</td><td id="tableDoor">--</td><td id="tableDoorState">--</td><td>/home/door — servo control</td></tr>
+        <tr><td>LPG Gas</td><td id="tableGas">--</td><td id="tableGasState">--</td><td>/sensor/gas — MQ5 raw ADC</td></tr>
+        <tr><td>Light</td><td id="tableLight">--</td><td id="tableLightState">--</td><td>/home/led — 0 or 1</td></tr>
+        <tr><td>IR Sensor</td><td id="tableIR">--</td><td id="tableIRState">--</td><td>/sensor/ir — 0=detected,1=clear</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+
+<script>
+  // ===== FIREBASE CONFIG (dht22iot-5b3fd) =====
+  const firebaseConfig = {
+    apiKey: "AIzaSyAxHjFO***************wi-_8SLHghNo",
+    authDomain: "dht22iot-p*************.com",
+    databaseURL: "https://dht2**************2itdb.firebaseio.com",
+    projectId: "dht2",
+    storageBucket: "dht22i*********torage.app",
+    messagingSenderId: "*************",
+    appId: "1:ecd7af7",
+    measurementId: "Q"
+  };
+
+  // ===== AUTH CREDENTIALS =====
+  const USER_EMAIL = "tu************mail.com";
+  const USER_PASS  = "1234tuhi";
+
+  const TEMP_THRESHOLD = 27.0;
+  const GAS_THRESHOLD  = 800;  // raw ADC from MQ5 on pin 32
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.database();
+
+  // ===== DOM REFS — sensor cards =====
+  const tempValue      = document.getElementById('tempValue');
+  const humValue       = document.getElementById('humValue');
+  const speedValue     = document.getElementById('speedValue');
+  const statusValue    = document.getElementById('statusValue');
+  const tempSub        = document.getElementById('tempSub');
+  const fanSub         = document.getElementById('fanSub');
+  const statusSub      = document.getElementById('statusSub');
+  const lastUpdated    = document.getElementById('lastUpdated');
+  const connectionBadge= document.getElementById('connectionBadge');
+  const overallState   = document.getElementById('overallState');
+  const fanMode        = document.getElementById('fanMode');
+  const humidityState  = document.getElementById('humidityState');
+  const temperatureState= document.getElementById('temperatureState');
+  const authUser       = document.getElementById('authUser');
+  const refreshBtn     = document.getElementById('refreshBtn');
+  const downloadBtn    = document.getElementById('downloadBtn');
+  const stateChip      = document.getElementById('stateChip');
+  const tableTemp      = document.getElementById('tableTemp');
+  const tableTempState = document.getElementById('tableTempState');
+  const tableHum       = document.getElementById('tableHum');
+  const tableHumState  = document.getElementById('tableHumState');
+  const tableSpeed     = document.getElementById('tableSpeed');
+  const tableSpeedState= document.getElementById('tableSpeedState');
+  const tableStatus    = document.getElementById('tableStatus');
+  const tableStatusState= document.getElementById('tableStatusState');
+
+  // ===== DOM REFS — home automation =====
+  const doorVisual     = document.getElementById('doorVisual');
+  const doorStatusText = document.getElementById('doorStatusText');
+  const unlockTimer    = document.getElementById('unlockTimer');
+  const unlockCountdown= document.getElementById('unlockCountdown');
+  const unlockBtn      = document.getElementById('unlockBtn');
+  const irValue        = document.getElementById('irValue');
+  const irSub          = document.getElementById('irSub');
+  const buzzerValue    = document.getElementById('buzzerValue');
+  const personVisual   = document.getElementById('personVisual');
+  const lightBulbWrap  = document.getElementById('lightBulbWrap');
+  const lightValue     = document.getElementById('lightValue');
+  const lightSub       = document.getElementById('lightSub');
+  const lightOnBtn     = document.getElementById('lightOnBtn');
+  const lightOffBtn    = document.getElementById('lightOffBtn');
+  const fanSvg         = document.getElementById('fanSvg');
+  const fanControlValue= document.getElementById('fanControlValue');
+  const fanControlSub  = document.getElementById('fanControlSub');
+  const fanOnBtn       = document.getElementById('fanOnBtn');
+  const fanOffBtn      = document.getElementById('fanOffBtn');
+  const fanSlider      = document.getElementById('fanSlider');
+  const fanSliderLabel = document.getElementById('fanSliderLabel');
+  const gasValue       = document.getElementById('gasValue');
+  const gasSub         = document.getElementById('gasSub');
+  const gasBarFill     = document.getElementById('gasBarFill');
+  const gasAlertBanner = document.getElementById('gasAlertBanner');
+  const gasAlertLocal  = document.getElementById('gasAlertLocal');
+  const gasStateInfo   = document.getElementById('gasStateInfo');
+  const doorStateInfo  = document.getElementById('doorStateInfo');
+  const tableDoor      = document.getElementById('tableDoor');
+  const tableDoorState = document.getElementById('tableDoorState');
+  const tableGas       = document.getElementById('tableGas');
+  const tableGasState  = document.getElementById('tableGasState');
+  const tableLight     = document.getElementById('tableLight');
+  const tableLightState= document.getElementById('tableLightState');
+  const tableIR        = document.getElementById('tableIR');
+  const tableIRState   = document.getElementById('tableIRState');
+
+  // ===== CHART =====
+  const labels = [], tempData = [], humData = [];
+  const ctx = document.getElementById('sensorChart').getContext('2d');
+  const gradientTemp = ctx.createLinearGradient(0,0,0,260);
+  gradientTemp.addColorStop(0,'rgba(34,211,238,0.35)');
+  gradientTemp.addColorStop(1,'rgba(34,211,238,0.02)');
+  const gradientHum = ctx.createLinearGradient(0,0,0,260);
+  gradientHum.addColorStop(0,'rgba(139,92,246,0.32)');
+  gradientHum.addColorStop(1,'rgba(139,92,246,0.02)');
+  const sensorChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'Temperature (°C)', data:tempData, borderColor:'#22d3ee', backgroundColor:gradientTemp, fill:true, borderWidth:2.5, pointRadius:3, pointHoverRadius:5, tension:0.35 },
+        { label:'Humidity (%)', data:humData, borderColor:'#8b5cf6', backgroundColor:gradientHum, fill:true, borderWidth:2.5, pointRadius:3, pointHoverRadius:5, tension:0.35 }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:true,
+      plugins: {
+        legend:{display:false},
+        tooltip:{ backgroundColor:'rgba(15,23,42,0.95)', borderColor:'rgba(148,163,184,0.15)', borderWidth:1, titleColor:'#e5eefc', bodyColor:'#dbeafe', padding:12, displayColors:true }
+      },
+      scales: {
+        x:{ ticks:{color:'#8fa3bf',maxRotation:0,autoSkip:true,maxTicksLimit:6}, grid:{color:'rgba(148,163,184,0.08)'} },
+        y:{ ticks:{color:'#8fa3bf'}, grid:{color:'rgba(148,163,184,0.08)'} }
+      }
+    }
+  });
+  function addPoint(temp, hum) {
+    const now = new Date();
+    labels.push(now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+    tempData.push(temp); humData.push(hum);
+    if (labels.length > 20) { labels.shift(); tempData.shift(); humData.shift(); }
+    sensorChart.update();
+  }
+
+  // ===== HELPERS =====
+  function setConnection(text, state='') {
+    connectionBadge.textContent = text;
+    connectionBadge.className = `status-badge ${state}`.trim();
+    overallState.textContent = text;
+  }
+  function getTempState(temp) { return temp >= TEMP_THRESHOLD ? 'Above threshold' : 'Below threshold'; }
+  function getHumidityState(hum) { if(hum>=70) return 'High'; if(hum>=40) return 'Normal'; return 'Low'; }
+  function setStatusStyle(el, text) {
+    el.classList.remove('good','warn','bad');
+    if (/high|above|warning|hot/i.test(text)) el.classList.add('warn');
+    else if (/error|fail|offline/i.test(text)) el.classList.add('bad');
+    else el.classList.add('good');
+  }
+
+  // ===== GAS ALARM SOUND =====
+  let gasAlarmInterval = null;
+  let audioCtx = null;
+  function playGasAlarmSound() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [493.88, 440, 392, 349.23, 329.63, 293.66];
+    let time = audioCtx.currentTime;
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, time + i * 0.22);
+      gain.gain.setValueAtTime(0.0, time + i * 0.22);
+      gain.gain.linearRampToValueAtTime(0.35, time + i * 0.22 + 0.05);
+      gain.gain.linearRampToValueAtTime(0.0, time + i * 0.22 + 0.20);
+      osc.start(time + i * 0.22);
+      osc.stop(time + i * 0.22 + 0.22);
+    });
+  }
+  function startGasAlarm() {
+    gasAlertBanner.classList.add('active');
+    gasAlertLocal.style.display = 'block';
+    document.getElementById('mainContainer').style.marginTop = '54px';
+    if (!gasAlarmInterval) { playGasAlarmSound(); gasAlarmInterval = setInterval(playGasAlarmSound, 2200); }
+  }
+  function stopGasAlarm() {
+    gasAlertBanner.classList.remove('active');
+    gasAlertLocal.style.display = 'none';
+    document.getElementById('mainContainer').style.marginTop = '0';
+    if (gasAlarmInterval) { clearInterval(gasAlarmInterval); gasAlarmInterval = null; }
+  }
+
+  // ===== DOOR UNLOCK — writes 1 to /home/door, ESP32 resets it to 0 =====
+  let unlockTimerHandle = null;
+  let unlockSecondsLeft = 5;
+  function triggerUnlock() {
+    if (unlockTimerHandle) return;
+    db.ref('/home/door').set(1);   // ESP32 reads this, opens servo, sets back to 0
+    doorVisual.classList.add('unlocked');
+    doorStatusText.textContent = 'Servo: 120° (Unlocked)';
+    doorStatusText.classList.add('good');
+    unlockTimer.classList.add('active');
+    unlockSecondsLeft = 5;
+    unlockCountdown.textContent = 5;
+    unlockBtn.disabled = true;
+    unlockTimerHandle = setInterval(() => {
+      unlockSecondsLeft--;
+      unlockCountdown.textContent = unlockSecondsLeft;
+      if (unlockSecondsLeft <= 0) {
+        clearInterval(unlockTimerHandle); unlockTimerHandle = null;
+        doorVisual.classList.remove('unlocked');
+        doorStatusText.textContent = 'Servo: 0° (Locked)';
+        doorStatusText.classList.remove('good');
+        unlockTimer.classList.remove('active');
+        unlockBtn.disabled = false;
+        doorStateInfo.textContent = 'Locked (Servo 0°)';
+        tableDoor.textContent = 'Locked';
+        tableDoorState.textContent = 'Closed 0°';
+      }
+    }, 1000);
+    doorStateInfo.textContent = 'Unlocked (Servo 120°)';
+    tableDoor.textContent = 'Unlocked';
+    tableDoorState.textContent = 'Open 120°';
+  }
+  unlockBtn.addEventListener('click', triggerUnlock);
+
+  // ===== LIGHT CONTROL — writes to /home/led =====
+  function setLight(state) {
+    db.ref('/home/led').set(state);
+    renderLight(state);
+  }
+  function renderLight(state) {
+    const isOn = state === 1 || state === true;
+    lightBulbWrap.className = `light-bulb-wrap ${isOn ? 'on' : 'off'}`;
+    lightValue.textContent = isOn ? 'ON' : 'OFF';
+    lightValue.className = `value ${isOn ? 'good' : 'warn'}`;
+    lightSub.textContent = isOn ? 'Light is ON — illuminating' : 'Light is OFF — standby';
+    tableLight.textContent = isOn ? 'ON' : 'OFF';
+    tableLightState.textContent = isOn ? 'Active' : 'Idle';
+  }
+  lightOnBtn.addEventListener('click', () => setLight(1));
+  lightOffBtn.addEventListener('click', () => setLight(0));
+
+  // ===== FAN CONTROL — writes 0-100 to /home/fan (ESP32 maps to PWM 0-255) =====
+  function setFan(val) {
+    const v = parseInt(val);
+    db.ref('/home/fan').set(v);
+    fanSlider.value = v;
+    fanSliderLabel.textContent = v + '%';
+    renderFanControl(v);
+  }
+  function onFanSlider(val) {
+    fanSliderLabel.textContent = val + '%';
+    db.ref('/home/fan').set(parseInt(val));
+    renderFanControl(parseInt(val));
+  }
+  function renderFanControl(speed) {
+    const pct = typeof speed === 'number' ? speed : 0;
+    const isOn = pct > 0;
+    fanControlValue.textContent = isOn ? `${pct}%` : 'OFF';
+    fanControlValue.className = `value ${isOn ? 'good' : 'warn'}`;
+    fanControlSub.textContent = isOn ? `Fan at ${pct}% — cooling active` : 'Fan is OFF — standby';
+    fanSvg.className = `fan-svg ${isOn ? (pct > 50 ? 'spinning' : 'slow') : 'off-state'}`;
+    speedValue.textContent = isOn ? `${pct}%` : 'OFF';
+    tableSpeed.textContent = isOn ? `${pct}%` : 'OFF';
+    tableSpeedState.textContent = isOn ? 'Running' : 'Idle';
+    fanMode.textContent = `${pct}% → PWM ${Math.round(pct * 255 / 100)}/255`;
+    fanSlider.value = pct;
+    fanSliderLabel.textContent = pct + '%';
+  }
+  fanOnBtn.addEventListener('click', () => setFan(100));
+  fanOffBtn.addEventListener('click', () => setFan(0));
+
+  // ===== IR SENSOR — /sensor/ir (0=LOW=detected, 1=HIGH=clear) =====
+  function renderIR(irData) {
+    // In the .ino: ir = digitalRead(irPin); then ir==LOW triggers Titanic melody
+    // LOW = 0 = person detected
+    const detected = irData === 0 || irData === '0';
+    irValue.textContent = detected ? 'PERSON DETECTED' : 'CLEAR';
+    irValue.className = `value ${detected ? 'bad' : 'good'}`;
+    irSub.textContent = detected ? 'IR LOW — Titanic melody playing on buzzer!' : 'No one at door — IR HIGH';
+    if (detected) { personVisual.classList.add('detected'); }
+    else { personVisual.classList.remove('detected'); }
+    buzzerValue.textContent = detected ? 'HIGH — Titanic Playing!' : 'LOW — Silent';
+    buzzerValue.className = `value ${detected ? 'bad' : 'good'}`;
+    if (detected) buzzerValue.classList.add('buzzer-active');
+    else buzzerValue.classList.remove('buzzer-active');
+    tableIR.textContent = irData;
+    tableIRState.textContent = detected ? 'Detected' : 'Clear';
+  }
+
+  // ===== GAS SENSOR — /sensor/gas (raw ADC 0-4095, threshold 800) =====
+  function renderGas(raw) {
+    const v = Number(raw) || 0;
+    gasValue.innerHTML = `${v} <span style="font-size:16px; font-weight:500;">raw</span>`;
+    const pct = Math.min(100, (v / 1500) * 100);
+    gasBarFill.style.width = `${pct}%`;
+    if (v >= GAS_THRESHOLD) {
+      gasBarFill.style.background = 'var(--red)';
+      gasValue.className = 'value bad';
+      gasSub.textContent = '⚠️ DANGER: Above 800 threshold!';
+      gasStateInfo.textContent = `DANGER — ${v}`;
+      gasStateInfo.className = 'bad';
+      tableGasState.textContent = 'DANGER';
+      tableGasState.className = 'bad';
+      startGasAlarm();
+    } else if (v >= 400) {
+      gasBarFill.style.background = 'var(--yellow)';
+      gasValue.className = 'value warn';
+      gasSub.textContent = 'Warning: Gas level elevated';
+      gasStateInfo.textContent = `Warning — ${v}`;
+      tableGasState.textContent = 'Warning';
+      tableGasState.className = 'warn';
+      stopGasAlarm();
+    } else {
+      gasBarFill.style.background = 'var(--green)';
+      gasValue.className = 'value good';
+      gasSub.textContent = 'Safe: Below 800 threshold';
+      gasStateInfo.textContent = `Safe — ${v}`;
+      tableGasState.textContent = 'Safe';
+      tableGasState.className = 'good';
+      stopGasAlarm();
+    }
+    tableGas.textContent = v;
+  }
+
+  // ===== DOOR STATE from /home/door =====
+  function renderDoorFromDB(doorVal) {
+    if (unlockTimerHandle) return; // UI animation in progress
+    const isOpen = doorVal === 1;
+    if (isOpen) {
+      doorVisual.classList.add('unlocked');
+      doorStatusText.textContent = 'Servo: 120° (Unlocked)';
+      doorStateInfo.textContent = 'Unlocked (Servo 120°)';
+      tableDoor.textContent = 'Unlocked';
+      tableDoorState.textContent = 'Open 120°';
+    } else {
+      doorVisual.classList.remove('unlocked');
+      doorStatusText.textContent = 'Servo: 0° (Locked)';
+      doorStateInfo.textContent = 'Locked (Servo 0°)';
+      tableDoor.textContent = 'Locked';
+      tableDoorState.textContent = 'Closed 0°';
+    }
+  }
+
+  // ===== MAIN RENDER — reads from /sensor node =====
+  // .ino writes: /sensor/temp, /sensor/hum, /sensor/ir, /sensor/gas
+  function renderSensorData(data) {
+    const temp  = Number(data.temp  ?? data.temperature ?? 0);
+    const hum   = Number(data.hum   ?? data.humidity    ?? 0);
+    const ir    = data.ir  !== undefined ? data.ir  : data.ir_sensor;
+    const gas   = data.gas !== undefined ? data.gas : data.gas_ppm;
+
+    const tempState = getTempState(temp);
+    const humState  = getHumidityState(hum);
+    const nowText   = new Date().toLocaleString();
+
+    tempValue.textContent = `${temp.toFixed(1)} °C`;
+    humValue.textContent  = `${hum.toFixed(1)} %`;
+    statusValue.textContent = temp >= TEMP_THRESHOLD ? 'HOT' : 'NORMAL';
+    tempSub.textContent   = `Threshold: ${TEMP_THRESHOLD.toFixed(1)} °C`;
+    statusSub.textContent = `Last update: ${nowText}`;
+    lastUpdated.textContent = `Last browser update: ${nowText}`;
+
+    tableTemp.textContent      = `${temp.toFixed(1)} °C`;
+    tableTempState.textContent = tempState;
+    tableHum.textContent       = `${hum.toFixed(1)} %`;
+    tableHumState.textContent  = humState;
+    tableStatus.textContent    = temp >= TEMP_THRESHOLD ? 'HOT' : 'NORMAL';
+    tableStatusState.textContent = temp >= TEMP_THRESHOLD ? 'Triggered' : 'Stable';
+
+    humidityState.textContent  = humState;
+    temperatureState.textContent = tempState;
+    stateChip.textContent = temp >= TEMP_THRESHOLD ? 'Cooling Needed' : 'Normal Operation';
+    stateChip.className = `chip ${temp >= TEMP_THRESHOLD ? 'warn' : 'good'}`;
+
+    setStatusStyle(statusValue, statusValue.textContent);
+    setStatusStyle(tableTempState, tempState);
+    setStatusStyle(tableStatusState, tableStatusState.textContent);
+    humidityState.className = humState === 'High' ? 'warn' : humState === 'Low' ? 'bad' : 'good';
+    temperatureState.className = tempState === 'Above threshold' ? 'warn' : 'good';
+
+    addPoint(temp, hum);
+
+    if (ir !== undefined && ir !== null) renderIR(ir);
+    if (gas !== undefined && gas !== null) renderGas(gas);
+  }
+
+  // ===== SIGN IN + LISTEN =====
+  async function signInAndListen() {
+    try {
+      setConnection('Signing in', 'warn');
+      await auth.signInWithEmailAndPassword(USER_EMAIL, USER_PASS);
+      authUser.textContent = USER_EMAIL;
+      setConnection('Connected', 'good');
+
+      // Listen to /sensor — ESP32 writes temp, hum, ir, gas here
+      db.ref('/sensor').on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) { setConnection('No data', 'bad'); return; }
+        setConnection('Live', 'good');
+        renderSensorData(data);
+      }, (err) => { console.error(err); setConnection('Read error', 'bad'); });
+
+      // Listen to /home/led
+      db.ref('/home/led').on('value', (snap) => {
+        if (snap.val() !== null) renderLight(snap.val());
+      });
+
+      // Listen to /home/fan
+      db.ref('/home/fan').on('value', (snap) => {
+        if (snap.val() !== null) renderFanControl(Number(snap.val()));
+      });
+
+      // Listen to /home/door
+      db.ref('/home/door').on('value', (snap) => {
+        if (snap.val() !== null) renderDoorFromDB(snap.val());
+      });
+
+    } catch (error) {
+      console.error(error);
+      setConnection('Auth failed', 'bad');
+      statusSub.textContent = 'Firebase sign-in failed. Check credentials and database rules.';
+      alert('Firebase sign-in failed: ' + error.message);
+    }
+  }
+
+  // ===== BUTTONS =====
+  refreshBtn.addEventListener('click', async () => {
+    try {
+      setConnection('Refreshing', 'warn');
+      const snap = await db.ref('/sensor').get();
+      const data = snap.val();
+      if (data) { renderSensorData(data); setConnection('Live', 'good'); }
+      else setConnection('No data', 'bad');
+    } catch (err) { console.error(err); setConnection('Refresh error', 'bad'); }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const snapshot = {
+      exportedAt: new Date().toISOString(),
+      project: 'dht22iot-5b3fd',
+      temperature: tableTemp.textContent,
+      humidity: tableHum.textContent,
+      fanSpeed: tableSpeed.textContent,
+      status: tableStatus.textContent,
+      door: tableDoor.textContent,
+      gasRaw: tableGas.textContent,
+      light: tableLight.textContent,
+      ir: tableIR.textContent
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'esp32_dht22iot_snapshot.json'; link.click();
+    URL.revokeObjectURL(url);
+  });
+
+  signInAndListen();
+</script>
+</body>
+</html>
